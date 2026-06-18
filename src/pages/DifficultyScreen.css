@@ -1,0 +1,74 @@
+.difficulty-screen__preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.difficulty-screen__preview img {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+}
+.difficulty-screen__preview div {
+  display: flex;
+  flex-direction: column;
+}
+.difficulty-screen__preview span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-5);
+}
+
+@media (min-width: 640px) {
+  .difficulty-grid {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 720px;
+    margin: 0 auto;
+  }
+}
+
+.difficulty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-2);
+  box-shadow: 0 2px 6px var(--shadow);
+}
+.difficulty-card:active {
+  transform: scale(0.96);
+}
+
+.difficulty-card__count {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+}
+.difficulty-card__grid {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.diff-pill {
+  margin-top: var(--space-2);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.diff-pill--easy { background: rgba(31,111,107,0.15); color: var(--teal-deep); }
+.diff-pill--medium { background: rgba(232,105,58,0.15); color: var(--coral-deep); }
+.diff-pill--hard { background: rgba(155,107,224,0.18); color: #6b3fae; }
+.diff-pill--expert { background: rgba(27,36,48,0.12); color: var(--ink); }

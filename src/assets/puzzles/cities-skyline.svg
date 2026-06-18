@@ -1,0 +1,39 @@
+<svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyCity" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1A1F3D"/>
+      <stop offset="60%" stop-color="#3B2E5C"/>
+      <stop offset="100%" stop-color="#A85A7A"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#skyCity)"/>
+  <circle cx="600" cy="190" r="60" fill="#FCEFD0"/>
+  <g fill="#241B3A">
+    <rect x="30" y="420" width="90" height="380"/>
+    <rect x="140" y="340" width="70" height="460"/>
+    <rect x="230" y="460" width="100" height="340"/>
+    <rect x="350" y="300" width="80" height="500"/>
+    <rect x="450" y="400" width="60" height="400"/>
+    <rect x="530" y="360" width="90" height="440"/>
+    <rect x="640" y="440" width="70" height="360"/>
+    <rect x="730" y="380" width="60" height="420"/>
+  </g>
+  <g fill="#F4D793" opacity="0.85">
+    <rect x="50" y="450" width="14" height="14"/>
+    <rect x="80" y="480" width="14" height="14"/>
+    <rect x="50" y="520" width="14" height="14"/>
+    <rect x="160" y="380" width="12" height="12"/>
+    <rect x="160" y="420" width="12" height="12"/>
+    <rect x="180" y="460" width="12" height="12"/>
+    <rect x="260" y="500" width="14" height="14"/>
+    <rect x="290" y="540" width="14" height="14"/>
+    <rect x="370" y="340" width="12" height="12"/>
+    <rect x="400" y="380" width="12" height="12"/>
+    <rect x="370" y="420" width="12" height="12"/>
+    <rect x="550" y="400" width="14" height="14"/>
+    <rect x="580" y="440" width="14" height="14"/>
+    <rect x="660" y="480" width="12" height="12"/>
+    <rect x="750" y="420" width="12" height="12"/>
+  </g>
+  <path d="M0 760 Q200 730 400 760 T800 760 L800 800 L0 800 Z" fill="#150F26"/>
+</svg>

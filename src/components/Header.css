@@ -1,0 +1,31 @@
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: calc(var(--safe-top) + var(--space-2)) var(--space-3) var(--space-2);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header__title {
+  flex: 1;
+  font-size: 19px;
+  font-weight: 600;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header__side {
+  width: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.app-header__side--right {
+  justify-content: flex-end;
+}

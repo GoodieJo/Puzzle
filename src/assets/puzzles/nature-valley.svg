@@ -1,0 +1,26 @@
+<svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyValley" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFD9A8"/>
+      <stop offset="45%" stop-color="#F4936B"/>
+      <stop offset="100%" stop-color="#9B5B8C"/>
+    </linearGradient>
+    <linearGradient id="m1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5B4A77"/>
+      <stop offset="100%" stop-color="#3B2F55"/>
+    </linearGradient>
+    <linearGradient id="m2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3F3460"/>
+      <stop offset="100%" stop-color="#241D3C"/>
+    </linearGradient>
+    <radialGradient id="sunValley" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFF3D6"/>
+      <stop offset="100%" stop-color="#FFC36B"/>
+    </radialGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#skyValley)"/>
+  <circle cx="400" cy="330" r="95" fill="url(#sunValley)"/>
+  <path d="M0 430 L120 300 L230 410 L330 280 L460 440 L560 330 L680 460 L800 360 L800 800 L0 800 Z" fill="url(#m2)"/>
+  <path d="M0 560 L150 430 L280 540 L420 400 L540 540 L660 440 L800 540 L800 800 L0 800 Z" fill="url(#m1)"/>
+  <path d="M0 680 Q200 600 400 680 T800 680 L800 800 L0 800 Z" fill="#1B1530"/>
+</svg>

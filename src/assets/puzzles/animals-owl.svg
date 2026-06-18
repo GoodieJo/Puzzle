@@ -1,0 +1,29 @@
+<svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgOwl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1B2440"/>
+      <stop offset="100%" stop-color="#33406B"/>
+    </linearGradient>
+    <linearGradient id="bodyOwl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8C6B52"/>
+      <stop offset="100%" stop-color="#5A4233"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bgOwl)"/>
+  <circle cx="630" cy="150" r="46" fill="#F4ECD8"/>
+  <circle cx="200" cy="640" r="3" fill="#F4ECD8"/>
+  <circle cx="260" cy="120" r="4" fill="#F4ECD8"/>
+  <circle cx="540" cy="600" r="3" fill="#F4ECD8"/>
+  <circle cx="120" cy="300" r="4" fill="#F4ECD8"/>
+  <polygon points="270,260 340,140 380,280" fill="url(#bodyOwl)"/>
+  <polygon points="530,260 460,140 420,280" fill="url(#bodyOwl)"/>
+  <ellipse cx="400" cy="460" rx="220" ry="260" fill="url(#bodyOwl)"/>
+  <circle cx="320" cy="400" r="80" fill="#F4ECD8"/>
+  <circle cx="480" cy="400" r="80" fill="#F4ECD8"/>
+  <circle cx="320" cy="400" r="38" fill="#241A14"/>
+  <circle cx="480" cy="400" r="38" fill="#241A14"/>
+  <circle cx="330" cy="388" r="10" fill="#F4ECD8"/>
+  <circle cx="490" cy="388" r="10" fill="#F4ECD8"/>
+  <polygon points="400,440 380,480 420,480" fill="#E0973E"/>
+  <path d="M260 560 Q400 620 540 560 L520 700 Q400 740 280 700 Z" fill="#3F2F24"/>
+</svg>

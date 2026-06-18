@@ -1,0 +1,24 @@
+<svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyLove" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFD3B0"/>
+      <stop offset="55%" stop-color="#F08C7E"/>
+      <stop offset="100%" stop-color="#C45C8C"/>
+    </linearGradient>
+    <linearGradient id="heartLove" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE9D6"/>
+      <stop offset="100%" stop-color="#FFB199"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#skyLove)"/>
+  <circle cx="400" cy="380" r="170" fill="#FFE7C2" opacity="0.55"/>
+  <path d="M400 600
+           C 250 480, 150 400, 150 290
+           C 150 200, 230 150, 300 150
+           C 350 150, 390 180, 400 230
+           C 410 180, 450 150, 500 150
+           C 570 150, 650 200, 650 290
+           C 650 400, 550 480, 400 600 Z" fill="url(#heartLove)"/>
+  <path d="M0 700 Q200 650 400 700 T800 700 L800 800 L0 800 Z" fill="#7C3F5E" opacity="0.85"/>
+  <path d="M0 740 Q200 700 400 740 T800 740 L800 800 L0 800 Z" fill="#5A2C49"/>
+</svg>

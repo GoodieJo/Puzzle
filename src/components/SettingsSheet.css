@@ -1,0 +1,109 @@
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 12, 0.45);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 160ms ease;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-3) var(--space-5) calc(var(--space-6) + var(--safe-bottom));
+  box-shadow: 0 -8px 30px var(--shadow);
+  animation: slideUp 200ms ease;
+}
+
+.sheet__handle {
+  width: 40px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto var(--space-4);
+}
+
+.sheet__title {
+  font-size: 20px;
+  margin-bottom: var(--space-4);
+}
+
+.sheet__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+}
+
+.sheet__row--column {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.sheet__close {
+  width: 100%;
+  margin-top: var(--space-5);
+}
+
+.toggle {
+  width: 50px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--border);
+  border: none;
+  position: relative;
+  padding: 3px;
+  transition: background 150ms ease;
+}
+.toggle.is-on {
+  background: var(--accent);
+}
+.toggle__thumb {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 150ms ease;
+}
+.toggle.is-on .toggle__thumb {
+  transform: translateX(20px);
+}
+
+.segmented {
+  display: flex;
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  padding: 3px;
+  width: 100%;
+}
+.segmented__item {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  min-height: 38px;
+}
+.segmented__item.is-active {
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}

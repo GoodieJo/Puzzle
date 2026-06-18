@@ -1,0 +1,40 @@
+<svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyForest" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#BFE6E0"/>
+      <stop offset="100%" stop-color="#E9F4EA"/>
+    </linearGradient>
+    <linearGradient id="t1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9FCBB8"/>
+      <stop offset="100%" stop-color="#6FA98F"/>
+    </linearGradient>
+    <linearGradient id="t2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5E9A82"/>
+      <stop offset="100%" stop-color="#3C7A63"/>
+    </linearGradient>
+    <linearGradient id="t3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#326653"/>
+      <stop offset="100%" stop-color="#1F4A3B"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#skyForest)"/>
+  <circle cx="610" cy="200" r="70" fill="#FFF6DD" opacity="0.9"/>
+  <g fill="url(#t1)">
+    <polygon points="120,360 60,520 180,520"/>
+    <polygon points="320,330 240,520 400,520"/>
+    <polygon points="560,350 480,520 640,520"/>
+    <polygon points="740,380 680,520 800,520"/>
+  </g>
+  <g fill="url(#t2)">
+    <polygon points="200,420 110,620 290,620"/>
+    <polygon points="440,400 340,620 540,620"/>
+    <polygon points="680,430 590,620 770,620"/>
+    <polygon points="20,450 -50,620 90,620"/>
+  </g>
+  <g fill="url(#t3)">
+    <polygon points="100,540 -20,800 220,800"/>
+    <polygon points="360,520 220,800 500,800"/>
+    <polygon points="620,540 480,800 760,800"/>
+    <polygon points="780,560 660,800 800,800"/>
+  </g>
+</svg>

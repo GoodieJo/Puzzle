@@ -1,0 +1,40 @@
+.workspace-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.workspace-canvas-area {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  background: #11161f;
+}
+
+.workspace-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.workspace-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f1ece1;
+  font-weight: 600;
+}
+
+.workspace-pause-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 12, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
