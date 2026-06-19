@@ -14,7 +14,7 @@ export default defineConfig({
         id: '/',
         name: 'Piecewise - Jigsaw Puzzles',
         short_name: 'Piecewise',
-        description: 'A smooth, mobile-first jigsaw puzzle game. Pick a scene or upload your own photo.',
+        description: 'A smooth, mobile-first jigsaw puzzle game. Play solo or with friends in real time.',
         theme_color: '#1b2430',
         background_color: '#faf5ec',
         display: 'standalone',
@@ -42,7 +42,11 @@ export default defineConfig({
       },
     }),
   ],
-  worker: {
-    format: 'es',
+  worker: { format: 'es' },
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:8787', changeOrigin: true, ws: true },
+      '/r2':  { target: 'http://localhost:8787', changeOrigin: true },
+    },
   },
 });

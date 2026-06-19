@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { PieceStyle, PuzzleConfig, PuzzleImageMeta } from '../types/puzzle';
 
-export type Screen = 'home' | 'upload' | 'difficulty' | 'workspace';
+export type Screen = 'home' | 'upload' | 'difficulty' | 'workspace' | 'lobby' | 'room-setup';
 
 export interface Settings {
   theme: 'light' | 'dark';
@@ -12,11 +12,8 @@ export interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  theme: 'light',
-  highContrast: false,
-  pieceStyle: 'classic',
-  allowRotation: false,
-  soundOn: true,
+  theme: 'light', highContrast: false,
+  pieceStyle: 'classic', allowRotation: false, soundOn: true,
 };
 
 const SETTINGS_KEY = 'jigsaw:settings';
@@ -26,9 +23,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+  } catch { return DEFAULT_SETTINGS; }
 }
 
 interface AppContextValue {
@@ -45,17 +40,17 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(() => {
+    // Auto-detect room URL on load: /room/ABC123
+    const match = window.location.pathname.match(/\/room\/([A-Z0-9]{6})/i);
+    return match ? 'lobby' : 'home';
+  });
   const [selectedImage, setSelectedImage] = useState<PuzzleImageMeta | null>(null);
   const [config, setConfig] = useState<PuzzleConfig | null>(null);
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // ignore persistence failures (private mode, quota, etc.)
-    }
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
   }, [settings]);
 
   useEffect(() => {
@@ -65,14 +60,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppContextValue>(
     () => ({
-      screen,
-      goTo: setScreen,
-      selectedImage,
-      setSelectedImage,
-      config,
-      setConfig,
-      settings,
-      updateSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
+      screen, goTo: setScreen,
+      selectedImage, setSelectedImage,
+      config, setConfig,
+      settings, updateSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     }),
     [screen, selectedImage, config, settings]
   );

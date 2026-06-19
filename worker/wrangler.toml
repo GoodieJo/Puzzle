@@ -1,0 +1,36 @@
+name = "piecewise-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Durable Objects ──────────────────────────────────────────────────────────
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Room"]
+
+# ── R2 bucket (uploaded puzzle images) ───────────────────────────────────────
+[[r2_buckets]]
+binding = "PUZZLE_IMAGES"
+bucket_name = "piecewise-puzzle-images"
+
+# ── KV namespace (room index for fast existence checks) ──────────────────────
+[[kv_namespaces]]
+binding = "ROOM_INDEX"
+id = "4faa57350cf44ff49448a954fbe60d03"
+
+# ── Environment variables ────────────────────────────────────────────────────
+[vars]
+CORS_ORIGIN = "https://piecewise.pages.dev"
+
+# ── Build ────────────────────────────────────────────────────────────────────
+[build]
+command = "npm run build"
+
+# ── Local dev ────────────────────────────────────────────────────────────────
+[dev]
+port = 8787
+local_protocol = "http"

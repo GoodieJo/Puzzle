@@ -43,8 +43,25 @@ export function HomeScreen() {
 
       <div className="home-screen__intro">
         <h2>Pick a scene</h2>
-        <p>Choose a built-in puzzle, or bring your own photo to life.</p>
+        <p>Solve solo, or play together with friends in real time.</p>
       </div>
+
+      <button className="multiplayer-cta" onClick={() => goTo('lobby')}>
+        <span className="multiplayer-cta__icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
+            <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </span>
+        <span>
+          <strong>Play with friends</strong>
+          <small>Real-time cooperative multiplayer</small>
+        </span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="multiplayer-cta__arrow">
+          <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
 
       <button className="upload-cta" onClick={() => goTo('upload')}>
         <span className="upload-cta__icon" aria-hidden="true">

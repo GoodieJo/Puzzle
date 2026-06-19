@@ -16,9 +16,13 @@ interface ImageCropperProps {
 function dist(a: Pos, b: Pos) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
-function mid(a: Pos, b: Pos): Pos {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+function clamp(v: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, v));
 }
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const OUTPUT_LONG_EDGE = 1800;
 
 export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) {
   const originalAspect = useMemo(
@@ -28,15 +32,24 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
   const aspectOptions = useMemo(() => [originalAspect, ...CROP_ASPECTS], [originalAspect]);
   const [aspect, setAspect] = useState<CropAspectOption>(originalAspect);
   const [rotationSteps, setRotationSteps] = useState(0);
+  const [frameBox, setFrameBox] = useState({ width: 0, height: 0 });
+
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameSize = useRef({ width: 0, height: 0 });
-  const baseScale = useRef(1);
-  const transform = useRef({ scale: 1, x: 0, y: 0 });
-  const pointers = useRef<Map<number, Pos>>(new Map());
-  const panRef = useRef<{ id: number; last: Pos } | null>(null);
-  const pinchRef = useRef<{ startDist: number; startScale: number; startX: number; startY: number; mid: Pos } | null>(null);
 
+  // Crop selection state, stored resolution-independently so it means the
+  // same thing whether rendered into a small preview canvas or a large
+  // export canvas: zoom is a multiplier over "just barely covers the frame",
+  // and pan is a fraction of the frame's own width/height (not raw pixels).
+  const zoomRef = useRef(1);
+  const panRef = useRef<Pos>({ x: 0, y: 0 });
+
+  const pointers = useRef<Map<number, Pos>>(new Map());
+  const panPointerRef = useRef<{ id: number; last: Pos } | null>(null);
+  const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
+
+  // Effective (post-rotation) natural pixel dimensions of the source image.
   const effDims = useCallback(() => {
     const swapped = rotationSteps % 2 === 1;
     return {
@@ -45,36 +58,98 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
     };
   }, [image, rotationSteps]);
 
-  const fitToFrame = useCallback(() => {
-    const frame = frameRef.current;
-    if (!frame) return;
-    const rect = frame.getBoundingClientRect();
-    frameSize.current = { width: rect.width, height: rect.height };
+  const frameAspectRatio = useMemo(() => {
+    if (aspect.id !== 'original') return aspect.ratio;
     const { w, h } = effDims();
-    const scale = Math.max(rect.width / w, rect.height / h);
-    baseScale.current = scale;
-    transform.current = { scale, x: 0, y: 0 };
-  }, [effDims]);
+    return w / h;
+  }, [aspect, effDims]);
 
+  // How far (as a fraction of frame width/height) the image can be panned
+  // before its edge would reveal empty space, for the current zoom level.
+  const maxPanFrac = useCallback(() => {
+    const { w, h } = effDims();
+    const imageAspect = w / h;
+    const ratioX = Math.max(1, imageAspect / frameAspectRatio);
+    const ratioY = Math.max(1, frameAspectRatio / imageAspect);
+    return {
+      x: Math.max(0, (ratioX * zoomRef.current - 1) / 2),
+      y: Math.max(0, (ratioY * zoomRef.current - 1) / 2),
+    };
+  }, [effDims, frameAspectRatio]);
+
+  const clampPan = useCallback(() => {
+    const limit = maxPanFrac();
+    panRef.current = {
+      x: clamp(panRef.current.x, -limit.x, limit.x),
+      y: clamp(panRef.current.y, -limit.y, limit.y),
+    };
+  }, [maxPanFrac]);
+
+  // Reset framing whenever the chosen aspect or rotation changes.
   useEffect(() => {
-    fitToFrame();
-  }, [aspect, rotationSteps, fitToFrame]);
+    zoomRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+  }, [aspect, rotationSteps]);
 
+  // Compute the frame's pixel box explicitly in JS rather than via CSS
+  // aspect-ratio + max-height (which fight each other on wide/short
+  // viewports, e.g. laptops, and silently produce the wrong box shape).
   useEffect(() => {
-    const frame = frameRef.current;
-    if (!frame) return;
-    const ro = new ResizeObserver(fitToFrame);
-    ro.observe(frame);
-    return () => ro.disconnect();
-  }, [fitToFrame]);
+    const wrap = wrapRef.current;
+    if (!wrap) return;
 
-  // Render loop (redraw on any transform change; cheap single-image draw).
+    const recompute = () => {
+      const rect = wrap.getBoundingClientRect();
+      const availW = rect.width;
+      const availH = Math.min(rect.height, window.innerHeight * 0.6);
+      if (availW <= 0 || availH <= 0) return;
+      let w = availW;
+      let h = w / frameAspectRatio;
+      if (h > availH) {
+        h = availH;
+        w = h * frameAspectRatio;
+      }
+      setFrameBox({ width: Math.round(w), height: Math.round(h) });
+    };
+
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(wrap);
+    window.addEventListener('resize', recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', recompute);
+    };
+  }, [frameAspectRatio]);
+
+  // Draws the current crop selection into any canvas/size that shares the
+  // frame's aspect ratio - used for both the live preview and final export.
+  const renderInto = useCallback(
+    (ctx: CanvasRenderingContext2D, cw: number, ch: number) => {
+      const { w: iw, h: ih } = effDims();
+      ctx.fillStyle = '#11161f';
+      ctx.fillRect(0, 0, cw, ch);
+      const baseScale = Math.max(cw / iw, ch / ih);
+      const scale = baseScale * zoomRef.current;
+      const panPxX = panRef.current.x * cw;
+      const panPxY = panRef.current.y * ch;
+      ctx.save();
+      ctx.translate(cw / 2 + panPxX, ch / 2 + panPxY);
+      ctx.rotate((rotationSteps * 90 * Math.PI) / 180);
+      ctx.scale(scale, scale);
+      ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+      ctx.restore();
+    },
+    [image, rotationSteps, effDims]
+  );
+
+  // Live preview render loop.
   useEffect(() => {
     let raf = 0;
     const draw = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
-      const { width, height } = frameSize.current;
+      const { width, height } = frameBox;
       if (canvas && ctx && width > 0 && height > 0) {
         const dpr = Math.min(window.devicePixelRatio || 1, 3);
         canvas.width = width * dpr;
@@ -82,21 +157,13 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
         canvas.style.width = `${width}px`;
         canvas.style.height = `${height}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.fillStyle = '#11161f';
-        ctx.fillRect(0, 0, width, height);
-        const t = transform.current;
-        ctx.save();
-        ctx.translate(width / 2 + t.x, height / 2 + t.y);
-        ctx.rotate((rotationSteps * 90 * Math.PI) / 180);
-        ctx.scale(t.scale, t.scale);
-        ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
-        ctx.restore();
+        renderInto(ctx, width, height);
       }
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [image, rotationSteps]);
+  }, [frameBox, renderInto]);
 
   const getRelative = (e: React.PointerEvent): Pos => {
     const canvas = canvasRef.current;
@@ -110,17 +177,11 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
     const pos = getRelative(e);
     pointers.current.set(e.pointerId, pos);
     if (pointers.current.size === 1) {
-      panRef.current = { id: e.pointerId, last: pos };
+      panPointerRef.current = { id: e.pointerId, last: pos };
     } else if (pointers.current.size === 2) {
-      panRef.current = null;
+      panPointerRef.current = null;
       const pts = [...pointers.current.values()];
-      pinchRef.current = {
-        startDist: Math.max(1, dist(pts[0], pts[1])),
-        startScale: transform.current.scale,
-        startX: transform.current.x,
-        startY: transform.current.y,
-        mid: mid(pts[0], pts[1]),
-      };
+      pinchRef.current = { startDist: Math.max(1, dist(pts[0], pts[1])), startZoom: zoomRef.current };
     }
   };
 
@@ -129,64 +190,63 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
     const pos = getRelative(e);
     const prev = pointers.current.get(e.pointerId)!;
     pointers.current.set(e.pointerId, pos);
+    const { width, height } = frameBox;
+    if (width === 0 || height === 0) return;
 
     if (pinchRef.current && pointers.current.size >= 2) {
       const pts = [...pointers.current.values()].slice(0, 2);
       const d = Math.max(1, dist(pts[0], pts[1]));
       const pinch = pinchRef.current;
-      const minScale = baseScale.current * 1;
-      const maxScale = baseScale.current * 4;
-      const newScale = Math.min(maxScale, Math.max(minScale, pinch.startScale * (d / pinch.startDist)));
-      transform.current = { scale: newScale, x: pinch.startX, y: pinch.startY };
+      zoomRef.current = clamp(pinch.startZoom * (d / pinch.startDist), MIN_ZOOM, MAX_ZOOM);
+      clampPan();
       return;
     }
 
-    const pan = panRef.current;
+    const pan = panPointerRef.current;
     if (pan && pan.id === e.pointerId) {
       const dx = pos.x - prev.x;
       const dy = pos.y - prev.y;
-      transform.current = { ...transform.current, x: transform.current.x + dx, y: transform.current.y + dy };
+      panRef.current = {
+        x: panRef.current.x + dx / width,
+        y: panRef.current.y + dy / height,
+      };
+      clampPan();
     }
   };
 
   const onPointerUpOrCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointers.current.delete(e.pointerId);
-    if (panRef.current?.id === e.pointerId) panRef.current = null;
+    if (panPointerRef.current?.id === e.pointerId) panPointerRef.current = null;
     if (pinchRef.current && pointers.current.size < 2) {
       pinchRef.current = null;
       if (pointers.current.size === 1) {
         const [id, pos] = [...pointers.current.entries()][0];
-        panRef.current = { id, last: pos };
+        panPointerRef.current = { id, last: pos };
       }
     }
   };
 
   const adjustZoom = (factor: number) => {
-    const minScale = baseScale.current * 1;
-    const maxScale = baseScale.current * 4;
-    transform.current = {
-      ...transform.current,
-      scale: Math.min(maxScale, Math.max(minScale, transform.current.scale * factor)),
-    };
+    zoomRef.current = clamp(zoomRef.current * factor, MIN_ZOOM, MAX_ZOOM);
+    clampPan();
   };
 
   const handleConfirm = () => {
-    const { width, height } = frameSize.current;
-    const outScale = Math.min(1600 / width, 3);
-    const outW = Math.round(width * outScale);
-    const outH = Math.round(height * outScale);
+    let outW: number;
+    let outH: number;
+    if (frameAspectRatio >= 1) {
+      outW = OUTPUT_LONG_EDGE;
+      outH = Math.round(OUTPUT_LONG_EDGE / frameAspectRatio);
+    } else {
+      outH = OUTPUT_LONG_EDGE;
+      outW = Math.round(OUTPUT_LONG_EDGE * frameAspectRatio);
+    }
     const out = document.createElement('canvas');
     out.width = outW;
     out.height = outH;
     const ctx = out.getContext('2d');
     if (!ctx) return;
-    const t = transform.current;
-    ctx.save();
-    ctx.translate(outW / 2 + t.x * outScale, outH / 2 + t.y * outScale);
-    ctx.rotate((rotationSteps * 90 * Math.PI) / 180);
-    ctx.scale(t.scale * outScale, t.scale * outScale);
-    ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
-    ctx.restore();
+    renderInto(ctx, outW, outH);
     out.toBlob(
       (blob) => {
         if (!blob) return;
@@ -197,16 +257,13 @@ export function ImageCropper({ image, onConfirm, onCancel }: ImageCropperProps) 
     );
   };
 
-  const eff = effDims();
-  const frameAspectRatio = aspect.id === 'original' ? eff.w / eff.h : aspect.ratio;
-
   return (
     <div className="cropper">
-      <div className="cropper__frame-wrap">
+      <div className="cropper__frame-wrap" ref={wrapRef}>
         <div
           className="cropper__frame"
           ref={frameRef}
-          style={{ aspectRatio: frameAspectRatio }}
+          style={{ width: frameBox.width || undefined, height: frameBox.height || undefined }}
         >
           <canvas
             ref={canvasRef}
