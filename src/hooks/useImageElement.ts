@@ -15,6 +15,7 @@ export function useImageElement(src: string | null) {
     setError(null);
     const img = new Image();
     img.decoding = 'async';
+    img.crossOrigin = 'anonymous';   // ← add this line
     img.onload = () => {
       setImage(img);
       setAspect(img.naturalWidth / img.naturalHeight || 1);
