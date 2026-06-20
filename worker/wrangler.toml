@@ -24,7 +24,7 @@ id = "4faa57350cf44ff49448a954fbe60d03"
 
 # ── Environment variables ────────────────────────────────────────────────────
 [vars]
-CORS_ORIGIN = "https://piecewise.pages.dev"
+CORS_ORIGIN = "https://puzzle-a5c.pages.dev"
 
 # ── Build ────────────────────────────────────────────────────────────────────
 [build]

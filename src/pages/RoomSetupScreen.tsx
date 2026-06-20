@@ -13,7 +13,7 @@ import type { PuzzleImageMeta, PuzzleCategory } from '../types/puzzle';
 import type { WirePuzzleConfig } from '../multiplayer/protocol';
 import './RoomSetupScreen.css';
 
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'http://localhost:8787';
+const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'piecewise.anonymousguy074.workers.dev';
 const LABEL_CLASS: Record<string, string> = {
   Easy: 'diff-pill diff-pill--easy', Medium: 'diff-pill diff-pill--medium',
   Hard: 'diff-pill diff-pill--hard', Expert: 'diff-pill diff-pill--expert',

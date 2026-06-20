@@ -12,7 +12,7 @@ import { MultiplayerClient } from '../multiplayer/client';
 import type { RoomSnapshot, PlayerInfo, WirePuzzleConfig } from '../multiplayer/protocol';
 import type { RemoteLock } from '../multiplayer/sync';
 
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'http://localhost:8787';
+const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'piecewise.anonymousguy074.workers.dev';
 const PLAYER_ID_KEY = 'piecewise:playerId';
 const PLAYER_NAME_KEY = 'piecewise:playerName';
 
