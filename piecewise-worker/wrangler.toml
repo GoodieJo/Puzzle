@@ -10,7 +10,7 @@ class_name = "Room"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["Room"]
+new_sqlite_classes = ["Room"]
 
 # ── R2 bucket (uploaded puzzle images) ───────────────────────────────────────
 [[r2_buckets]]
@@ -24,13 +24,4 @@ id = "4faa57350cf44ff49448a954fbe60d03"
 
 # ── Environment variables ────────────────────────────────────────────────────
 [vars]
-CORS_ORIGIN = "https://puzzle-a5c.pages.dev"
-
-# ── Build ────────────────────────────────────────────────────────────────────
-[build]
-command = "npm run build"
-
-# ── Local dev ────────────────────────────────────────────────────────────────
-[dev]
-port = 8787
-local_protocol = "http"
+CORS_ORIGIN = "*"
