@@ -9,10 +9,10 @@ import {
   type ReactNode,
 } from 'react';
 import { MultiplayerClient } from '../multiplayer/client';
-import type { RoomSnapshot, PlayerInfo, WirePuzzleConfig } from '../multiplayer/protocol';
+import type { RoomSnapshot, PlayerInfo, WirePuzzleConfig, ServerMessage } from '../multiplayer/protocol';
 import type { RemoteLock } from '../multiplayer/sync';
 
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'piecewise.anonymousguy074.workers.dev';
+const WORKER_BASE_URL = (import.meta.env.VITE_WORKER_URL as string | undefined)?.trim() ?? '';
 const PLAYER_ID_KEY = 'piecewise:playerId';
 const PLAYER_NAME_KEY = 'piecewise:playerName';
 
@@ -32,22 +32,15 @@ function getStoredName(): string {
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 interface RoomContextValue {
-  // Identity
   playerId: string;
   playerName: string;
   setPlayerName: (name: string) => void;
-
-  // Room
   roomId: string | null;
   snapshot: RoomSnapshot | null;
   connectionStatus: ConnectionStatus;
-
-  // Players
   players: PlayerInfo[];
   locks: Map<number, RemoteLock>;
-
-  // Actions
-  createRoom: () => Promise<string>; // returns roomId
+  createRoom: () => Promise<string>;
   joinRoom: (roomId: string) => void;
   leaveRoom: () => void;
   setConfig: (config: WirePuzzleConfig) => void;
@@ -58,9 +51,8 @@ interface RoomContextValue {
   sendShuffle: () => void;
   sendRestart: () => void;
   isHost: boolean;
-
-  // For PuzzleWorkspace to register event handlers
   onServerMessage: (handler: (snap: RoomSnapshot, prevSnap: RoomSnapshot | null) => void) => () => void;
+  onRawMessage: (handler: (msg: ServerMessage) => void) => () => void;
 }
 
 const RoomContext = createContext<RoomContextValue | null>(null);
@@ -78,13 +70,13 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const snapshotRef = useRef<RoomSnapshot | null>(null);
   const locksRef = useRef<Map<number, RemoteLock>>(new Map());
   const snapshotHandlersRef = useRef<Set<(snap: RoomSnapshot, prev: RoomSnapshot | null) => void>>(new Set());
+  const rawHandlersRef = useRef<Set<(msg: ServerMessage) => void>>(new Set());
 
   const setPlayerName = useCallback((name: string) => {
     setPlayerNameState(name);
     localStorage.setItem(PLAYER_NAME_KEY, name);
   }, []);
 
-  // Initialize the multiplayer client once
   useEffect(() => {
     const client = new MultiplayerClient({
       workerBaseUrl: WORKER_BASE_URL,
@@ -98,7 +90,6 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           snapshotRef.current = snap;
           setSnapshot(snap);
           setPlayers(snap.players);
-          // Build locks from snapshot
           const newLocks = new Map<number, RemoteLock>();
           for (const p of snap.pieces) {
             if (p.lockedBy && p.lockedBy !== playerId) {
@@ -130,24 +121,22 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if (msg.type === 'player_left' || msg.type === 'player_online') {
           setPlayers((prev) =>
             prev.map((p) =>
-              p.id === (msg.type === 'player_left' ? msg.playerId : msg.playerId)
+              p.id === msg.playerId
                 ? { ...p, online: msg.type === 'player_online' ? msg.online : false }
                 : p
             )
           );
         }
 
-        if (msg.type === 'piece_grabbed') {
-          if (msg.playerId !== playerId) {
-            locksRef.current.set(msg.pieceId, {
-              playerId: msg.playerId,
-              playerName: msg.playerName,
-              playerColor: msg.playerColor,
-              x: 0,
-              y: 0,
-            });
-            setLocks(new Map(locksRef.current));
-          }
+        if (msg.type === 'piece_grabbed' && msg.playerId !== playerId) {
+          locksRef.current.set(msg.pieceId, {
+            playerId: msg.playerId,
+            playerName: msg.playerName,
+            playerColor: msg.playerColor,
+            x: 0,
+            y: 0,
+          });
+          setLocks(new Map(locksRef.current));
         }
         if (msg.type === 'piece_moved' && msg.playerId !== playerId) {
           const lock = locksRef.current.get(msg.pieceId);
@@ -173,7 +162,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           setPlayers((prev) => prev.map((p) => ({ ...p, isHost: p.id === msg.newHostId })));
         }
 
-        // Forward to workspace handlers for engine sync
+        // Fire raw handlers for every message (engine sync in workspace)
+        rawHandlersRef.current.forEach((h) => h(msg));
+
+        // Forward snapshot handlers
         if (snapshotRef.current) {
           snapshotHandlersRef.current.forEach((h) => h(snapshotRef.current!, prevSnap));
         }
@@ -183,7 +175,6 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     return () => client.disconnect();
   }, [playerId]);
 
-  // Reconnect when page becomes visible (handles mobile background/foreground)
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && roomId && !clientRef.current?.isConnected) {
@@ -261,6 +252,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const onRawMessage = useCallback((handler: (msg: ServerMessage) => void) => {
+    rawHandlersRef.current.add(handler);
+    return () => rawHandlersRef.current.delete(handler);
+  }, []);
+
   const value = useMemo<RoomContextValue>(() => ({
     playerId, playerName, setPlayerName,
     roomId, snapshot, connectionStatus,
@@ -271,6 +267,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     sendShuffle, sendRestart,
     isHost,
     onServerMessage,
+    onRawMessage,
   }), [
     playerId, playerName, setPlayerName,
     roomId, snapshot, connectionStatus,
@@ -281,6 +278,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     sendShuffle, sendRestart,
     isHost,
     onServerMessage,
+    onRawMessage,
   ]);
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { useRoom } from '../store/RoomContext';
 import { useImageElement } from '../hooks/useImageElement';
@@ -24,10 +24,22 @@ export function PuzzleWorkspace() {
   const room = useRoom();
   const isMultiplayer = !!room.roomId && !!room.snapshot;
 
-  // In multiplayer mode, build config from the server snapshot
-  const effectiveConfig = isMultiplayer && room.snapshot?.config
-    ? wireToPuzzleConfig(room.snapshot.config)
-    : config;
+  // ── FIX 1: Stable effectiveConfig ────────────────────────────────────────
+  // wireToPuzzleConfig() returns a new object on every call. If we call it
+  // inline, every re-render (triggered by lock updates) creates a new config
+  // object → usePuzzleGame sees a config change → recreates the engine from
+  // scratch → drag state and piece positions are wiped. Use useMemo with
+  // scalar deps so this only recomputes when the actual puzzle changes.
+  const sc = room.snapshot?.config;
+  const effectiveConfig = useMemo(() => {
+    if (isMultiplayer && sc) return wireToPuzzleConfig(sc);
+    return config;
+  }, [
+    isMultiplayer,
+    sc?.imageId, sc?.rows, sc?.cols, sc?.seed, sc?.imageSrc,
+    sc?.pieceStyle, sc?.allowRotation, sc?.aspect,
+    config,
+  ]);
 
   const { image } = useImageElement(effectiveConfig?.imageSrc ?? null);
   const { engine, moves, completed, timer, actions } = usePuzzleGame(effectiveConfig);
@@ -41,84 +53,99 @@ export function PuzzleWorkspace() {
   const engineRef = useRef<PuzzleEngine | null>(null);
   const locksRef = useRef<Map<number, RemoteLock>>(new Map());
 
-  // Keep engineRef current
   useEffect(() => { engineRef.current = engine; }, [engine]);
 
-  // ── Multiplayer event bridge ──────────────────────────────────────────────
+  // ── FIX 2: Apply initial server piece positions when engine is ready ──────
+  // By the time the workspace mounts, the game is already in 'playing' phase,
+  // so we can never catch a phase transition. Instead, apply snapshot pieces
+  // the moment the engine object first becomes available.
+  const snapshotPieces = room.snapshot?.pieces;
+  useEffect(() => {
+    const eng = engineRef.current;
+    if (!isMultiplayer || !eng || !snapshotPieces?.length) return;
+    applyWirePieces(snapshotPieces, eng);
+  }, [engine, isMultiplayer, snapshotPieces]);
+
+  // ── FIX 3: Sync remote piece moves directly via raw messages ─────────────
+  // The snapshot is NOT updated on every piece_moved message (that would be
+  // hundreds of React state updates per second). Instead we subscribe to raw
+  // ServerMessage objects and mutate the engine pieces directly — same as the
+  // existing local drag optimistic update pattern.
   useEffect(() => {
     if (!isMultiplayer) return;
-
-    return room.onServerMessage((snap, prev) => {
+    return room.onRawMessage((msg) => {
       const eng = engineRef.current;
-      if (!eng) return;
 
-      // game_started: hydrate piece positions from server
-      if (snap.phase === 'playing' && prev?.phase !== 'playing' && snap.pieces.length > 0) {
-        applyWirePieces(snap.pieces, eng);
-        locksRef.current.clear();
-        setRemoteLocks(new Map());
-        return;
+      // Update remote locks display
+      if (
+        msg.type === 'piece_grabbed' ||
+        msg.type === 'piece_moved' ||
+        msg.type === 'piece_dropped' ||
+        msg.type === 'piece_lock_expired'
+      ) {
+        const newLocks = new Map(locksRef.current);
+        if (msg.type === 'piece_grabbed' && msg.playerId !== room.playerId) {
+          newLocks.set(msg.pieceId, {
+            playerId: msg.playerId,
+            playerName: msg.playerName,
+            playerColor: msg.playerColor,
+            x: 0,
+            y: 0,
+          });
+        }
+        if (msg.type === 'piece_moved' && msg.playerId !== room.playerId) {
+          const lock = newLocks.get(msg.pieceId);
+          if (lock) { lock.x = msg.x; lock.y = msg.y; }
+        }
+        if (msg.type === 'piece_dropped' || msg.type === 'piece_lock_expired') {
+          newLocks.delete(msg.type === 'piece_dropped' ? msg.pieceId : msg.pieceId);
+        }
+        locksRef.current = newLocks;
+        setRemoteLocks(new Map(newLocks));
       }
 
-      // Per-event sync already handled in RoomContext; update locks display
-      setRemoteLocks(new Map(room.locks));
-    });
-  }, [isMultiplayer, room.onServerMessage, room.locks]);
-
-  // Also apply all server events to local engine for remote player moves
-  useEffect(() => {
-    if (!isMultiplayer) return;
-    return room.onServerMessage((snap) => {
-      const eng = engineRef.current;
       if (!eng) return;
-      // snap.pieces carries latest positions - apply any we're not locally tracking
-      for (const wp of snap.pieces) {
-        const local = eng.pieces.find((p) => p.id === wp.id);
-        if (local && !local.placed && !eng['dragOffsets']?.has(wp.id)) {
-          local.x = wp.x;
-          local.y = wp.y;
-          local.placed = wp.placed;
+
+      // Apply remote piece movements to local engine
+      if (msg.type === 'piece_moved' && msg.playerId !== room.playerId) {
+        const piece = eng.pieces.find((p) => p.id === msg.pieceId);
+        if (piece && !piece.placed) { piece.x = msg.x; piece.y = msg.y; }
+      }
+
+      if (msg.type === 'piece_dropped' && msg.playerId !== room.playerId) {
+        const piece = eng.pieces.find((p) => p.id === msg.pieceId);
+        if (piece) {
+          piece.x = msg.x; piece.y = msg.y;
+          if (msg.snapped) {
+            piece.x = piece.homeX; piece.y = piece.homeY;
+            piece.placed = true; piece.zIndex = 0;
+          }
         }
       }
+
+      if (msg.type === 'board_shuffled' || msg.type === 'game_restarted') {
+        applyWirePieces(msg.pieces, eng);
+        locksRef.current = new Map();
+        setRemoteLocks(new Map());
+      }
+
+      if (msg.type === 'game_complete') {
+        timer.pause();
+      }
     });
-  }, [isMultiplayer, room.onServerMessage]);
+  }, [isMultiplayer, room.onRawMessage, room.playerId, timer]);
 
-  // Apply per-message events (piece_moved, piece_dropped, board_shuffled, etc.)
-  useEffect(() => {
-    if (!isMultiplayer) return;
-    const client = (room as { _client?: unknown })._client;
-    void client; // handled via room context message loop
-    // The RoomContext already relays messages; we tap into lock changes
-    setRemoteLocks(new Map(room.locks));
-  }, [isMultiplayer, room.locks]);
-
-  // Navigate to home if we leave
+  // Navigate back if not in a valid state
   useEffect(() => {
     if (!isMultiplayer && !config && !selectedImage) goTo('home');
   }, [isMultiplayer, config, selectedImage, goTo]);
 
-  // Navigate when multiplayer game completes
-  useEffect(() => {
-    if (isMultiplayer && room.snapshot?.phase === 'complete') {
-      timer.pause();
-    }
-  }, [isMultiplayer, room.snapshot?.phase, timer]);
-
   const handleSnap = useCallback(() => { hapticPulse(14); }, []);
   const handleMove = useCallback(() => { if (!isMultiplayer) actions.incrementMove(); }, [isMultiplayer, actions]);
   const handleComplete = useCallback(() => { if (!isMultiplayer) actions.markComplete(); }, [isMultiplayer, actions]);
-
-  const handlePieceGrab = useCallback((pieceId: number) => {
-    if (isMultiplayer) room.sendPieceGrab(pieceId);
-  }, [isMultiplayer, room]);
-
-  const handlePieceMove = useCallback((pieceId: number, x: number, y: number) => {
-    if (isMultiplayer) room.sendPieceMove(pieceId, x, y);
-  }, [isMultiplayer, room]);
-
-  const handlePieceDrop = useCallback((pieceId: number, x: number, y: number) => {
-    if (isMultiplayer) room.sendPieceDrop(pieceId, x, y);
-  }, [isMultiplayer, room]);
+  const handlePieceGrab = useCallback((pieceId: number) => { if (isMultiplayer) room.sendPieceGrab(pieceId); }, [isMultiplayer, room]);
+  const handlePieceMove = useCallback((pieceId: number, x: number, y: number) => { if (isMultiplayer) room.sendPieceMove(pieceId, x, y); }, [isMultiplayer, room]);
+  const handlePieceDrop = useCallback((pieceId: number, x: number, y: number) => { if (isMultiplayer) room.sendPieceDrop(pieceId, x, y); }, [isMultiplayer, room]);
 
   const { containerRef, canvasRef, selectedPieceId, handlers, controls } = usePuzzleCanvas({
     engine,
@@ -147,19 +174,18 @@ export function PuzzleWorkspace() {
   const totalPieces = effectiveConfig.rows * effectiveConfig.cols;
   const placedCount = engine ? engine.pieces.filter((p) => p.placed).length : 0;
   const progress = totalPieces > 0 ? placedCount / totalPieces : 0;
-  const isComplete = isMultiplayer
-    ? room.snapshot?.phase === 'complete'
-    : completed;
-
-  const displayTitle = isMultiplayer
-    ? (room.snapshot?.config ? selectedImage?.title ?? 'Puzzle' : 'Puzzle')
-    : (selectedImage?.title ?? 'Puzzle');
+  const isComplete = isMultiplayer ? room.snapshot?.phase === 'complete' : completed;
+  const displayTitle = selectedImage?.title ?? room.snapshot?.config?.imageId ?? 'Puzzle';
+  const mpMoves = isMultiplayer ? (room.snapshot?.totalMoves ?? 0) : moves;
+  const mpElapsed = isMultiplayer
+    ? (room.snapshot?.startedAt ? Date.now() - room.snapshot.startedAt : 0)
+    : timer.elapsedMs;
 
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) await screenRef.current?.requestFullscreen();
       else await document.exitFullscreen();
-    } catch { /* iOS Safari */ }
+    } catch { /* iOS Safari doesn't support fullscreen */ }
   };
 
   const handleRestart = () => {
@@ -168,27 +194,15 @@ export function PuzzleWorkspace() {
     else { actions.restart(); controls.deselect(); }
   };
 
-  const handleShuffle = () => {
-    if (isMultiplayer) room.sendShuffle();
-    else actions.shuffle();
-  };
-
+  const handleShuffle = () => { if (isMultiplayer) room.sendShuffle(); else actions.shuffle(); };
   const handleTogglePause = () => {
-    if (isMultiplayer) return; // no pause in multiplayer
-    if (timer.paused) timer.resume();
-    else timer.pause();
+    if (isMultiplayer) return;
+    if (timer.paused) timer.resume(); else timer.pause();
   };
-
   const handleBack = () => {
     if (isMultiplayer) { room.leaveRoom(); goTo('home'); }
     else { actions.clearSave(); goTo('home'); }
   };
-
-  // Multiplayer stats
-  const mpMoves = isMultiplayer ? (room.snapshot?.totalMoves ?? 0) : moves;
-  const mpElapsed = isMultiplayer
-    ? (room.snapshot?.startedAt ? Date.now() - room.snapshot.startedAt : 0)
-    : timer.elapsedMs;
 
   return (
     <div className="screen workspace-screen" ref={screenRef}>
@@ -197,11 +211,8 @@ export function PuzzleWorkspace() {
         onBack={handleBack}
         right={
           isMultiplayer ? (
-            <button
-              className="btn btn-icon btn-ghost player-toggle"
-              aria-label="Show players"
-              onClick={() => setShowPlayers((v) => !v)}
-            >
+            <button className="btn btn-icon btn-ghost player-toggle" aria-label="Show players"
+              onClick={() => setShowPlayers((v) => !v)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="7" r="4" /><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
                 <path d="M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87" />
@@ -212,12 +223,7 @@ export function PuzzleWorkspace() {
         }
       />
 
-      <StatsBar
-        elapsedMs={mpElapsed}
-        moves={mpMoves}
-        progress={progress}
-        paused={timer.paused && !isMultiplayer}
-      />
+      <StatsBar elapsedMs={mpElapsed} moves={mpMoves} progress={progress} paused={timer.paused && !isMultiplayer} />
 
       {isMultiplayer && room.connectionStatus !== 'connected' && (
         <div className="workspace-conn-banner" role="alert">
@@ -227,16 +233,10 @@ export function PuzzleWorkspace() {
 
       <div className="workspace-canvas-area" ref={containerRef}>
         {!image && <div className="workspace-loading">Loading puzzle…</div>}
-        <canvas
-          ref={canvasRef}
-          className="workspace-canvas"
-          onPointerDown={handlers.onPointerDown}
-          onPointerMove={handlers.onPointerMove}
-          onPointerUp={handlers.onPointerUp}
-          onPointerCancel={handlers.onPointerCancel}
-          role="application"
-          aria-label="Puzzle board. Drag pieces to solve. Pinch to zoom, drag to pan."
-        />
+        <canvas ref={canvasRef} className="workspace-canvas"
+          onPointerDown={handlers.onPointerDown} onPointerMove={handlers.onPointerMove}
+          onPointerUp={handlers.onPointerUp} onPointerCancel={handlers.onPointerCancel}
+          role="application" aria-label="Puzzle board. Drag pieces to solve. Pinch to zoom, drag to pan." />
         {timer.paused && !isMultiplayer && (
           <div className="workspace-pause-overlay">
             <button className="btn btn-primary" onClick={handleTogglePause}>Resume</button>
@@ -254,7 +254,10 @@ export function PuzzleWorkspace() {
           {room.roomId && (
             <div className="workspace-room-code">
               Room: <code>{room.roomId}</code>
-              <button className="btn btn-ghost btn-sm" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/room/${room.roomId}`)}>Copy link</button>
+              <button className="btn btn-ghost btn-sm"
+                onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/room/${room.roomId}`)}>
+                Copy link
+              </button>
             </div>
           )}
         </div>
@@ -263,42 +266,23 @@ export function PuzzleWorkspace() {
       <Toolbar
         onShuffle={handleShuffle}
         onAutoArrange={() => { if (!isMultiplayer) actions.autoArrange(); }}
-        onZoomIn={controls.zoomIn}
-        onZoomOut={controls.zoomOut}
-        onResetZoom={controls.resetView}
+        onZoomIn={controls.zoomIn} onZoomOut={controls.zoomOut} onResetZoom={controls.resetView}
         onTogglePreview={() => setPreviewOpen(true)}
-        onToggleFullscreen={toggleFullscreen}
-        isFullscreen={isFullscreen}
-        onTogglePause={handleTogglePause}
-        paused={timer.paused && !isMultiplayer}
+        onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen}
+        onTogglePause={handleTogglePause} paused={timer.paused && !isMultiplayer}
         onRestart={handleRestart}
-        showGhost={showGhost}
-        onToggleGhost={() => setShowGhost((g) => !g)}
+        showGhost={showGhost} onToggleGhost={() => setShowGhost((g) => !g)}
         allowRotation={effectiveConfig.allowRotation}
-        onRotate={controls.rotateSelected}
-        rotateEnabled={selectedPieceId !== null}
+        onRotate={controls.rotateSelected} rotateEnabled={selectedPieceId !== null}
       />
 
-      <PreviewModal
-        open={previewOpen}
-        src={effectiveConfig.imageSrc}
-        onClose={() => setPreviewOpen(false)}
-      />
+      <PreviewModal open={previewOpen} src={effectiveConfig.imageSrc} onClose={() => setPreviewOpen(false)} />
 
       <CompletionModal
-        open={isComplete}
-        elapsedMs={mpElapsed}
-        moves={mpMoves}
-        pieceCount={totalPieces}
-        title={displayTitle}
-        onPlayAgain={() => {
-          if (isMultiplayer) room.sendRestart();
-          else { actions.restart(); controls.deselect(); }
-        }}
-        onHome={() => {
-          if (isMultiplayer) { room.leaveRoom(); goTo('home'); }
-          else { actions.clearSave(); goTo('home'); }
-        }}
+        open={!!isComplete} elapsedMs={mpElapsed} moves={mpMoves}
+        pieceCount={totalPieces} title={displayTitle}
+        onPlayAgain={() => { if (isMultiplayer) room.sendRestart(); else { actions.restart(); controls.deselect(); } }}
+        onHome={() => { if (isMultiplayer) { room.leaveRoom(); goTo('home'); } else { actions.clearSave(); goTo('home'); } }}
       />
     </div>
   );
@@ -306,13 +290,9 @@ export function PuzzleWorkspace() {
 
 function wireToPuzzleConfig(w: WirePuzzleConfig) {
   return {
-    imageId: w.imageId,
-    imageSrc: w.imageSrc,
-    rows: w.rows,
-    cols: w.cols,
-    pieceStyle: w.pieceStyle,
-    allowRotation: w.allowRotation,
-    aspect: w.aspect,
-    seed: w.seed,
+    imageId: w.imageId, imageSrc: w.imageSrc,
+    rows: w.rows, cols: w.cols,
+    pieceStyle: w.pieceStyle, allowRotation: w.allowRotation,
+    aspect: w.aspect, seed: w.seed,
   };
 }
