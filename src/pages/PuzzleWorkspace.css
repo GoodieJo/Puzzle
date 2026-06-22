@@ -4,6 +4,7 @@
   height: 100vh;
   padding-bottom: 0;
   overflow: hidden;
+  position: relative; /* needed for absolute children */
 }
 
 .workspace-canvas-area {
@@ -39,7 +40,6 @@
   justify-content: center;
 }
 
-/* Multiplayer connection banner */
 .workspace-conn-banner {
   background: var(--kraft-deep);
   color: #fff;
@@ -51,10 +51,11 @@
 
 /* Player toggle button in header */
 .player-toggle {
-  position: relative;
   width: auto !important;
   padding: 0 var(--space-2) !important;
   gap: var(--space-1);
+  display: flex;
+  align-items: center;
 }
 .player-toggle__count {
   font-size: 12px;
@@ -62,59 +63,82 @@
   min-width: 16px;
 }
 
-/* Slide-in players panel */
-.workspace-players-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 240px;
-  background: var(--bg-elevated);
-  border-left: 1px solid var(--border);
-  box-shadow: -4px 0 20px var(--shadow);
-  z-index: 30;
+/* ── Players panel ── fixed overlay so it never blocks canvas or causes
+   layout shifts. Clicking the backdrop closes it. */
+.players-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(10, 10, 12, 0.40);
   display: flex;
-  flex-direction: column;
-  padding: var(--space-3);
-  gap: var(--space-3);
-  overflow-y: auto;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 140ms ease;
 }
 
-.workspace-players-panel__header {
+.players-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-3) var(--space-4) calc(var(--space-5) + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: 0 -6px 24px var(--shadow);
+  animation: slideUp 180ms ease;
+}
+
+.players-sheet__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-weight: 700;
   font-size: 15px;
+  flex-shrink: 0;
 }
 
-.workspace-room-code {
-  margin-top: auto;
-  font-size: 12px;
-  color: var(--text-muted);
+.players-sheet__room {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
-.workspace-room-code code {
+.players-sheet__room code {
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--accent);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+}
+.players-sheet__room .btn {
+  width: 100%;
 }
 
-@media (max-width: 480px) {
-  .workspace-players-panel {
-    width: 100%;
-    top: auto;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 60vh;
-    border-left: none;
-    border-top: 1px solid var(--border);
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0.5; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@media (min-width: 640px) {
+  .players-overlay { align-items: center; justify-content: flex-end; padding-right: var(--space-4); }
+  .players-sheet {
+    width: 300px;
+    border-radius: var(--radius-lg);
+    max-height: 80vh;
+    animation: none;
+    box-shadow: 0 8px 32px var(--shadow);
   }
 }
+
 

@@ -10,7 +10,6 @@ import {
 } from 'react';
 import { MultiplayerClient } from '../multiplayer/client';
 import type { RoomSnapshot, PlayerInfo, WirePuzzleConfig, ServerMessage } from '../multiplayer/protocol';
-import type { RemoteLock } from '../multiplayer/sync';
 
 const WORKER_BASE_URL = (import.meta.env.VITE_WORKER_URL as string | undefined)?.trim() ?? '';
 const PLAYER_ID_KEY = 'piecewise:playerId';
@@ -18,10 +17,7 @@ const PLAYER_NAME_KEY = 'piecewise:playerName';
 
 function getOrCreatePlayerId(): string {
   let id = localStorage.getItem(PLAYER_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(PLAYER_ID_KEY, id);
-  }
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem(PLAYER_ID_KEY, id); }
   return id;
 }
 
@@ -39,7 +35,10 @@ interface RoomContextValue {
   snapshot: RoomSnapshot | null;
   connectionStatus: ConnectionStatus;
   players: PlayerInfo[];
-  locks: Map<number, RemoteLock>;
+  // NOTE: locks are intentionally NOT in context.
+  // They update 25+ times/second per player — putting them in React state
+  // causes the entire component tree to re-render on every piece move.
+  // PuzzleWorkspace manages locks via a plain ref read by the RAF canvas loop.
   createRoom: () => Promise<string>;
   joinRoom: (roomId: string) => void;
   leaveRoom: () => void;
@@ -51,7 +50,7 @@ interface RoomContextValue {
   sendShuffle: () => void;
   sendRestart: () => void;
   isHost: boolean;
-  onServerMessage: (handler: (snap: RoomSnapshot, prevSnap: RoomSnapshot | null) => void) => () => void;
+  onServerMessage: (handler: (snap: RoomSnapshot, prev: RoomSnapshot | null) => void) => () => void;
   onRawMessage: (handler: (msg: ServerMessage) => void) => () => void;
 }
 
@@ -63,12 +62,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
-  const [locks, setLocks] = useState<Map<number, RemoteLock>>(new Map());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
 
   const clientRef = useRef<MultiplayerClient | null>(null);
   const snapshotRef = useRef<RoomSnapshot | null>(null);
-  const locksRef = useRef<Map<number, RemoteLock>>(new Map());
   const snapshotHandlersRef = useRef<Set<(snap: RoomSnapshot, prev: RoomSnapshot | null) => void>>(new Set());
   const rawHandlersRef = useRef<Set<(msg: ServerMessage) => void>>(new Set());
 
@@ -85,87 +82,50 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       onMessage: (msg) => {
         const prevSnap = snapshotRef.current;
 
+        // ── Structural state updates (infrequent) ──────────────────────────
         if (msg.type === 'room_state') {
-          const snap = msg.snapshot;
-          snapshotRef.current = snap;
-          setSnapshot(snap);
-          setPlayers(snap.players);
-          const newLocks = new Map<number, RemoteLock>();
-          for (const p of snap.pieces) {
-            if (p.lockedBy && p.lockedBy !== playerId) {
-              const locker = snap.players.find((pl) => pl.id === p.lockedBy);
-              if (locker) {
-                newLocks.set(p.id, {
-                  playerId: locker.id,
-                  playerName: locker.name,
-                  playerColor: locker.color,
-                  x: p.x,
-                  y: p.y,
-                });
-              }
-            }
-          }
-          locksRef.current = newLocks;
-          setLocks(new Map(newLocks));
-          snapshotHandlersRef.current.forEach((h) => h(snap, prevSnap));
+          snapshotRef.current = msg.snapshot;
+          setSnapshot(msg.snapshot);
+          setPlayers(msg.snapshot.players);
+          snapshotHandlersRef.current.forEach((h) => h(msg.snapshot, prevSnap));
+          rawHandlersRef.current.forEach((h) => h(msg));
           return;
         }
 
         if (msg.type === 'player_joined') {
           setPlayers((prev) => {
             const idx = prev.findIndex((p) => p.id === msg.player.id);
-            if (idx >= 0) { const next = [...prev]; next[idx] = msg.player; return next; }
+            if (idx >= 0) { const n = [...prev]; n[idx] = msg.player; return n; }
             return [...prev, msg.player];
           });
         }
         if (msg.type === 'player_left' || msg.type === 'player_online') {
-          setPlayers((prev) =>
-            prev.map((p) =>
-              p.id === msg.playerId
-                ? { ...p, online: msg.type === 'player_online' ? msg.online : false }
-                : p
-            )
-          );
-        }
-
-        if (msg.type === 'piece_grabbed' && msg.playerId !== playerId) {
-          locksRef.current.set(msg.pieceId, {
-            playerId: msg.playerId,
-            playerName: msg.playerName,
-            playerColor: msg.playerColor,
-            x: 0,
-            y: 0,
-          });
-          setLocks(new Map(locksRef.current));
-        }
-        if (msg.type === 'piece_moved' && msg.playerId !== playerId) {
-          const lock = locksRef.current.get(msg.pieceId);
-          if (lock) { lock.x = msg.x; lock.y = msg.y; setLocks(new Map(locksRef.current)); }
-        }
-        if (msg.type === 'piece_dropped') {
-          locksRef.current.delete(msg.pieceId);
-          setLocks(new Map(locksRef.current));
-        }
-        if (msg.type === 'piece_lock_expired') {
-          locksRef.current.delete(msg.pieceId);
-          setLocks(new Map(locksRef.current));
-        }
-
-        if (msg.type === 'game_started') {
-          setSnapshot((prev) => prev ? { ...prev, phase: 'playing', config: msg.config, pieces: msg.pieces } : prev);
-        }
-        if (msg.type === 'game_complete') {
-          setSnapshot((prev) => prev ? { ...prev, phase: 'complete', completedAt: msg.completedAt } : prev);
-          setPlayers(msg.players);
+          setPlayers((prev) => prev.map((p) =>
+            p.id === msg.playerId
+              ? { ...p, online: msg.type === 'player_online' ? msg.online : false }
+              : p
+          ));
         }
         if (msg.type === 'host_changed') {
           setPlayers((prev) => prev.map((p) => ({ ...p, isHost: p.id === msg.newHostId })));
         }
+        if (msg.type === 'game_started') {
+          setSnapshot((prev) => prev
+            ? { ...prev, phase: 'playing', config: msg.config, pieces: msg.pieces }
+            : prev);
+        }
+        if (msg.type === 'game_complete') {
+          setSnapshot((prev) => prev
+            ? { ...prev, phase: 'complete', completedAt: msg.completedAt }
+            : prev);
+          setPlayers(msg.players);
+        }
 
-        // Fire raw handlers for every message (engine sync in workspace)
+        // ── Fire raw handlers for ALL messages (piece sync, lock display) ──
+        // These are ref-based callbacks — zero React state updates for
+        // piece_moved/grabbed/dropped which fire at 25+ msg/s per player.
         rawHandlersRef.current.forEach((h) => h(msg));
 
-        // Forward snapshot handlers
         if (snapshotRef.current) {
           snapshotHandlersRef.current.forEach((h) => h(snapshotRef.current!, prevSnap));
         }
@@ -175,15 +135,16 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     return () => client.disconnect();
   }, [playerId]);
 
+  // Reconnect on tab visibility (mobile background → foreground)
   useEffect(() => {
-    const handleVisibility = () => {
+    const onVisible = () => {
       if (document.visibilityState === 'visible' && roomId && !clientRef.current?.isConnected) {
         setConnectionStatus('reconnecting');
         clientRef.current?.connect(roomId, playerId, playerName);
       }
     };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [roomId, playerId, playerName]);
 
   const createRoom = useCallback(async () => {
@@ -206,51 +167,23 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setRoomId(null);
     setSnapshot(null);
     setPlayers([]);
-    setLocks(new Map());
-    locksRef.current.clear();
     setConnectionStatus('idle');
   }, []);
 
-  const setConfig = useCallback((config: WirePuzzleConfig) => {
-    clientRef.current?.send({ type: 'set_config', config });
+  const setConfig  = useCallback((c: WirePuzzleConfig) => clientRef.current?.send({ type: 'set_config', config: c }), []);
+  const startGame  = useCallback(() => clientRef.current?.send({ type: 'start_game' }), []);
+  const sendPieceGrab = useCallback((pieceId: number) => clientRef.current?.send({ type: 'piece_grab', pieceId }), []);
+  const sendPieceMove = useCallback((pieceId: number, x: number, y: number) => clientRef.current?.sendPieceMove(pieceId, x, y), []);
+  const sendPieceDrop = useCallback((pieceId: number, x: number, y: number) => clientRef.current?.send({ type: 'piece_drop', pieceId, x, y }), []);
+  const sendShuffle   = useCallback(() => clientRef.current?.send({ type: 'shuffle' }), []);
+  const sendRestart   = useCallback(() => clientRef.current?.send({ type: 'restart' }), []);
+
+  const isHost = useMemo(() => snapshot?.hostId === playerId, [snapshot?.hostId, playerId]);
+
+  const onServerMessage = useCallback((handler: (snap: RoomSnapshot, prev: RoomSnapshot | null) => void) => {
+    snapshotHandlersRef.current.add(handler);
+    return () => snapshotHandlersRef.current.delete(handler);
   }, []);
-
-  const startGame = useCallback(() => {
-    clientRef.current?.send({ type: 'start_game' });
-  }, []);
-
-  const sendPieceGrab = useCallback((pieceId: number) => {
-    clientRef.current?.send({ type: 'piece_grab', pieceId });
-  }, []);
-
-  const sendPieceMove = useCallback((pieceId: number, x: number, y: number) => {
-    clientRef.current?.sendPieceMove(pieceId, x, y);
-  }, []);
-
-  const sendPieceDrop = useCallback((pieceId: number, x: number, y: number) => {
-    clientRef.current?.send({ type: 'piece_drop', pieceId, x, y });
-  }, []);
-
-  const sendShuffle = useCallback(() => {
-    clientRef.current?.send({ type: 'shuffle' });
-  }, []);
-
-  const sendRestart = useCallback(() => {
-    clientRef.current?.send({ type: 'restart' });
-  }, []);
-
-  const isHost = useMemo(
-    () => snapshot?.hostId === playerId,
-    [snapshot?.hostId, playerId]
-  );
-
-  const onServerMessage = useCallback(
-    (handler: (snap: RoomSnapshot, prev: RoomSnapshot | null) => void) => {
-      snapshotHandlersRef.current.add(handler);
-      return () => snapshotHandlersRef.current.delete(handler);
-    },
-    []
-  );
 
   const onRawMessage = useCallback((handler: (msg: ServerMessage) => void) => {
     rawHandlersRef.current.add(handler);
@@ -259,26 +192,20 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<RoomContextValue>(() => ({
     playerId, playerName, setPlayerName,
-    roomId, snapshot, connectionStatus,
-    players, locks,
+    roomId, snapshot, connectionStatus, players,
     createRoom, joinRoom, leaveRoom,
     setConfig, startGame,
     sendPieceGrab, sendPieceMove, sendPieceDrop,
     sendShuffle, sendRestart,
-    isHost,
-    onServerMessage,
-    onRawMessage,
+    isHost, onServerMessage, onRawMessage,
   }), [
     playerId, playerName, setPlayerName,
-    roomId, snapshot, connectionStatus,
-    players, locks,
+    roomId, snapshot, connectionStatus, players,
     createRoom, joinRoom, leaveRoom,
     setConfig, startGame,
     sendPieceGrab, sendPieceMove, sendPieceDrop,
     sendShuffle, sendRestart,
-    isHost,
-    onServerMessage,
-    onRawMessage,
+    isHost, onServerMessage, onRawMessage,
   ]);
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

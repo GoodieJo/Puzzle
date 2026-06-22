@@ -18,16 +18,16 @@ export interface UsePuzzleCanvasArgs {
   highContrast: boolean;
   backgroundColor: string;
   paused: boolean;
-  /** Map of pieceId → RemoteLock (pieces being moved by other players). */
-  remoteLocks: Map<number, RemoteLock>;
+  /**
+   * Plain MutableRefObject (NOT state) so the RAF loop can read the latest
+   * lock map every frame with zero React re-renders per piece-move message.
+   */
+  remoteLocks: React.MutableRefObject<Map<number, RemoteLock>>;
   onSnap: () => void;
   onMove: () => void;
   onComplete: () => void;
-  /** Called when local user picks up a piece (for multiplayer grab broadcast). */
   onPieceGrab?: (pieceId: number) => void;
-  /** Called each frame while dragging (throttled externally by MultiplayerClient). */
   onPieceMove?: (pieceId: number, x: number, y: number) => void;
-  /** Called when local user drops a piece (for multiplayer drop broadcast). */
   onPieceDrop?: (pieceId: number, x: number, y: number) => void;
 }
 
@@ -93,17 +93,14 @@ export function usePuzzleCanvas(args: UsePuzzleCanvasArgs) {
       lastEngineRef.current = args.engine;
       hasFitRef.current = false;
       setSelectedPieceId(null);
-      const container = containerRef.current;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        sizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
-      }
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) sizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
       requestFit();
       hasFitRef.current = true;
     }
   }, [args.engine, requestFit]);
 
-  // RAF render loop
+  // RAF render loop — reads remoteLocks.current directly every frame (no React state)
   useEffect(() => {
     let raf = 0;
     const loop = () => {
@@ -121,7 +118,7 @@ export function usePuzzleCanvas(args: UsePuzzleCanvasArgs) {
             selectedId: selectedPieceId,
             highContrast,
             backgroundColor,
-            remoteLocks,
+            remoteLocks: remoteLocks.current, // read ref directly — zero re-render cost
           });
         }
       }
@@ -147,7 +144,8 @@ export function usePuzzleCanvas(args: UsePuzzleCanvasArgs) {
     const dropY = piece?.y ?? 0;
     const snapped = engine.endDrag(drag.pieceId);
     dragRef.current = null;
-    argsRef.current.onPieceDrop?.(drag.pieceId, snapped ? engine.pieces.find(p => p.id === drag.pieceId)?.x ?? dropX : dropX, snapped ? engine.pieces.find(p => p.id === drag.pieceId)?.y ?? dropY : dropY);
+    const finalPiece = engine.pieces.find((p) => p.id === drag.pieceId);
+    argsRef.current.onPieceDrop?.(drag.pieceId, snapped ? (finalPiece?.x ?? dropX) : dropX, snapped ? (finalPiece?.y ?? dropY) : dropY);
     argsRef.current.onMove();
     if (snapped) {
       argsRef.current.onSnap();
@@ -155,108 +153,95 @@ export function usePuzzleCanvas(args: UsePuzzleCanvasArgs) {
     }
   }, []);
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLCanvasElement>) => {
-      const engine = argsRef.current.engine;
-      if (!engine || argsRef.current.paused) return;
-      const canvas = canvasRef.current;
-      canvas?.setPointerCapture(e.pointerId);
-      const pos = getRelative(e);
-      pointers.current.set(e.pointerId, pos);
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const engine = argsRef.current.engine;
+    if (!engine || argsRef.current.paused) return;
+    canvasRef.current?.setPointerCapture(e.pointerId);
+    const pos = getRelative(e);
+    pointers.current.set(e.pointerId, pos);
 
-      if (pointers.current.size === 1) {
-        const world = screenToWorld(viewportRef.current, pos.x, pos.y);
-        const piece = engine.getPieceAt(world.x, world.y);
-        if (piece && !piece.placed) {
-          // Block grab if locked by another player
-          const isRemoteLocked = argsRef.current.remoteLocks.has(piece.id);
-          if (isRemoteLocked) {
-            panRef.current = { pointerId: e.pointerId, last: pos };
-            return;
-          }
-          dragRef.current = { pointerId: e.pointerId, pieceId: piece.id };
-          engine.beginDrag(piece.id, world.x, world.y);
-          setSelectedPieceId(piece.id);
-          argsRef.current.onPieceGrab?.(piece.id);
-        } else {
+    if (pointers.current.size === 1) {
+      const world = screenToWorld(viewportRef.current, pos.x, pos.y);
+      const piece = engine.getPieceAt(world.x, world.y);
+      if (piece && !piece.placed) {
+        // Block grab if locked by another player (read from ref — no re-render)
+        if (argsRef.current.remoteLocks.current.has(piece.id)) {
           panRef.current = { pointerId: e.pointerId, last: pos };
-          setSelectedPieceId(null);
+          return;
         }
-      } else if (pointers.current.size === 2) {
-        if (dragRef.current) finishDrag();
-        panRef.current = null;
-        const pts = [...pointers.current.values()];
-        pinchRef.current = {
-          startDist: Math.max(1, dist(pts[0], pts[1])),
-          startMid: midpoint(pts[0], pts[1]),
-          startScale: viewportRef.current.scale,
-          startOffset: { x: viewportRef.current.offsetX, y: viewportRef.current.offsetY },
-        };
+        dragRef.current = { pointerId: e.pointerId, pieceId: piece.id };
+        engine.beginDrag(piece.id, world.x, world.y);
+        setSelectedPieceId(piece.id);
+        argsRef.current.onPieceGrab?.(piece.id);
+      } else {
+        panRef.current = { pointerId: e.pointerId, last: pos };
+        setSelectedPieceId(null);
       }
-    },
-    [getRelative, finishDrag]
-  );
+    } else if (pointers.current.size === 2) {
+      if (dragRef.current) finishDrag();
+      panRef.current = null;
+      const pts = [...pointers.current.values()];
+      pinchRef.current = {
+        startDist: Math.max(1, dist(pts[0], pts[1])),
+        startMid: midpoint(pts[0], pts[1]),
+        startScale: viewportRef.current.scale,
+        startOffset: { x: viewportRef.current.offsetX, y: viewportRef.current.offsetY },
+      };
+    }
+  }, [getRelative, finishDrag]);
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!pointers.current.has(e.pointerId)) return;
-      const engine = argsRef.current.engine;
-      if (!engine) return;
-      const pos = getRelative(e);
-      const prev = pointers.current.get(e.pointerId)!;
-      pointers.current.set(e.pointerId, pos);
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    const engine = argsRef.current.engine;
+    if (!engine) return;
+    const pos = getRelative(e);
+    const prev = pointers.current.get(e.pointerId)!;
+    pointers.current.set(e.pointerId, pos);
 
-      if (pinchRef.current && pointers.current.size >= 2) {
-        const pts = [...pointers.current.values()].slice(0, 2);
-        const d = Math.max(1, dist(pts[0], pts[1]));
-        const m = midpoint(pts[0], pts[1]);
-        const pinch = pinchRef.current;
-        const targetScale = clamp(pinch.startScale * (d / pinch.startDist), fitScaleRef.current * 0.4, fitScaleRef.current * 5);
-        const base = zoomViewportAt(
-          { scale: pinch.startScale, offsetX: pinch.startOffset.x, offsetY: pinch.startOffset.y },
-          pinch.startMid.x, pinch.startMid.y, targetScale
-        );
-        viewportRef.current = {
-          scale: targetScale,
-          offsetX: base.offsetX + (m.x - pinch.startMid.x),
-          offsetY: base.offsetY + (m.y - pinch.startMid.y),
-        };
-        return;
+    if (pinchRef.current && pointers.current.size >= 2) {
+      const pts = [...pointers.current.values()].slice(0, 2);
+      const d = Math.max(1, dist(pts[0], pts[1]));
+      const m = midpoint(pts[0], pts[1]);
+      const pinch = pinchRef.current;
+      const targetScale = clamp(pinch.startScale * (d / pinch.startDist), fitScaleRef.current * 0.4, fitScaleRef.current * 5);
+      const base = zoomViewportAt(
+        { scale: pinch.startScale, offsetX: pinch.startOffset.x, offsetY: pinch.startOffset.y },
+        pinch.startMid.x, pinch.startMid.y, targetScale
+      );
+      viewportRef.current = { scale: targetScale, offsetX: base.offsetX + (m.x - pinch.startMid.x), offsetY: base.offsetY + (m.y - pinch.startMid.y) };
+      return;
+    }
+
+    const drag = dragRef.current;
+    if (drag && drag.pointerId === e.pointerId) {
+      const world = screenToWorld(viewportRef.current, pos.x, pos.y);
+      engine.updateDrag(drag.pieceId, world.x, world.y);
+      argsRef.current.onPieceMove?.(drag.pieceId, world.x, world.y);
+      return;
+    }
+
+    const pan = panRef.current;
+    if (pan && pan.pointerId === e.pointerId) {
+      viewportRef.current = {
+        ...viewportRef.current,
+        offsetX: viewportRef.current.offsetX + (pos.x - prev.x),
+        offsetY: viewportRef.current.offsetY + (pos.y - prev.y),
+      };
+    }
+  }, [getRelative]);
+
+  const onPointerUpOrCancel = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointers.current.delete(e.pointerId);
+    if (dragRef.current?.pointerId === e.pointerId) finishDrag();
+    if (panRef.current?.pointerId === e.pointerId) panRef.current = null;
+    if (pinchRef.current && pointers.current.size < 2) {
+      pinchRef.current = null;
+      if (pointers.current.size === 1) {
+        const [id, pos] = [...pointers.current.entries()][0];
+        panRef.current = { pointerId: id, last: pos };
       }
-
-      const drag = dragRef.current;
-      if (drag && drag.pointerId === e.pointerId) {
-        const world = screenToWorld(viewportRef.current, pos.x, pos.y);
-        engine.updateDrag(drag.pieceId, world.x, world.y);
-        argsRef.current.onPieceMove?.(drag.pieceId, world.x, world.y);
-        return;
-      }
-
-      const pan = panRef.current;
-      if (pan && pan.pointerId === e.pointerId) {
-        const dx = pos.x - prev.x;
-        const dy = pos.y - prev.y;
-        viewportRef.current = { ...viewportRef.current, offsetX: viewportRef.current.offsetX + dx, offsetY: viewportRef.current.offsetY + dy };
-      }
-    },
-    [getRelative]
-  );
-
-  const onPointerUpOrCancel = useCallback(
-    (e: React.PointerEvent<HTMLCanvasElement>) => {
-      pointers.current.delete(e.pointerId);
-      if (dragRef.current?.pointerId === e.pointerId) finishDrag();
-      if (panRef.current?.pointerId === e.pointerId) panRef.current = null;
-      if (pinchRef.current && pointers.current.size < 2) {
-        pinchRef.current = null;
-        if (pointers.current.size === 1) {
-          const [id, pos] = [...pointers.current.entries()][0];
-          panRef.current = { pointerId: id, last: pos };
-        }
-      }
-    },
-    [finishDrag]
-  );
+    }
+  }, [finishDrag]);
 
   const zoomBy = useCallback((factor: number) => {
     const { width, height } = sizeRef.current;
@@ -264,8 +249,8 @@ export function usePuzzleCanvas(args: UsePuzzleCanvasArgs) {
     viewportRef.current = zoomViewportAt(viewportRef.current, width / 2, height / 2, target);
   }, []);
 
-  const zoomIn = useCallback(() => zoomBy(1.25), [zoomBy]);
-  const zoomOut = useCallback(() => zoomBy(0.8), [zoomBy]);
+  const zoomIn   = useCallback(() => zoomBy(1.25), [zoomBy]);
+  const zoomOut  = useCallback(() => zoomBy(0.8),  [zoomBy]);
   const resetView = useCallback(() => requestFit(), [requestFit]);
   const rotateSelected = useCallback(() => {
     const engine = argsRef.current.engine;
