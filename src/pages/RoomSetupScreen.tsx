@@ -13,7 +13,7 @@ import type { PuzzleImageMeta, PuzzleCategory } from '../types/puzzle';
 import type { WirePuzzleConfig } from '../multiplayer/protocol';
 import './RoomSetupScreen.css';
 
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL as string ?? 'piecewise.anonymousguy074.workers.dev';
+const WORKER_BASE_URL = (import.meta.env.VITE_WORKER_URL as string | undefined)?.trim() ?? '';
 const LABEL_CLASS: Record<string, string> = {
   Easy: 'diff-pill diff-pill--easy', Medium: 'diff-pill diff-pill--medium',
   Hard: 'diff-pill diff-pill--hard', Expert: 'diff-pill diff-pill--expert',
@@ -51,15 +51,16 @@ export function RoomSetupScreen() {
     setUploadBusy(true);
     try {
       const resized = await resizeImage(file, 1600);
-      // Upload to Worker → R2
       const blob = await fetch(resized.url).then((r) => r.blob());
-      const res = await fetch(`${WORKER_BASE_URL}/api/rooms/${roomId}/upload`, {
+      const base = WORKER_BASE_URL || window.location.origin;
+      const res = await fetch(`${base}/api/rooms/${roomId}/upload`, {
         method: 'POST',
         headers: { 'Content-Type': file.type },
         body: blob,
       });
       const { imageUrl } = await res.json() as { imageUrl: string };
-      const fullUrl = WORKER_BASE_URL + imageUrl;
+      // Build the full public R2 URL — this is what all players will load
+      const fullUrl = `${base}${imageUrl}`;
       setStagedUrl(fullUrl);
     } catch {
       alert('Upload failed. Please try again.');
@@ -68,8 +69,11 @@ export function RoomSetupScreen() {
     }
   };
 
-  const handleCropConfirm = ({ url, aspect }: { url: string; width: number; height: number; aspect: number }) => {
-    setSelectedImage({ id: `custom-${Date.now()}`, title: 'Your photo', category: 'Abstract', src: url, thumb: url, aspect, builtIn: false });
+const handleCropConfirm = ({ aspect }: { url: string; width: number; height: number; aspect: number }) => {
+    // Use stagedUrl (the R2 URL) as imageSrc so ALL players can load the image.
+    // The local blob `url` only exists in the host's browser memory.
+    const r2Url = stagedUrl!;
+    setSelectedImage({ id: `custom-${Date.now()}`, title: 'Your photo', category: 'Abstract', src: r2Url, thumb: r2Url, aspect, builtIn: false });
     setStagedUrl(null);
     setPendingConfig(null);
   };

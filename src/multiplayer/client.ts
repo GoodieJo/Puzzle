@@ -51,10 +51,15 @@ export class MultiplayerClient {
 
   private openSocket() {
     if (!this.roomId) return;
-    const wsUrl = this.opts.workerBaseUrl
-      .replace(/^http/, 'ws')
-      .replace(/\/$/, '');
-    const url = `${wsUrl}/api/rooms/${this.roomId}/ws`;
+    let url: string;
+    const base = this.opts.workerBaseUrl.trim();
+    if (!base) {
+      // Same-origin (Vite proxy in dev, Pages domain in prod)
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url = `${proto}//${window.location.host}/api/rooms/${this.roomId}/ws`;
+    } else {
+      url = base.replace(/^http/, 'ws').replace(/\/$/, '') + `/api/rooms/${this.roomId}/ws`;
+    }
 
     const ws = new WebSocket(url);
     this.ws = ws;

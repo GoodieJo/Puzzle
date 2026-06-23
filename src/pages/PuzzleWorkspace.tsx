@@ -58,6 +58,10 @@ export function PuzzleWorkspace() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showPlayers, setShowPlayers] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  
+  const [mpTick, setMpTick] = useState(0); 
+  useEffect(() => { if (!isMultiplayer) return; const id = setInterval(() => setMpTick((t) => t + 1), 1000);
+  return () => clearInterval(id); }, [isMultiplayer]);
 
   // Reset initial-pieces flag when a new engine is created
   useEffect(() => { initialPiecesApplied.current = false; }, [engine]);
@@ -169,8 +173,8 @@ export function PuzzleWorkspace() {
   const progress     = totalPieces > 0 ? placedCount / totalPieces : 0;
   const displayTitle = selectedImage?.title ?? sc?.imageId ?? 'Puzzle';
   const mpMoves      = isMultiplayer ? (room.snapshot?.totalMoves ?? 0) : moves;
-  const mpElapsed    = isMultiplayer
-    ? (room.snapshot?.startedAt ? Date.now() - room.snapshot.startedAt : 0)
+  const mpElapsed = isMultiplayer
+    ? (room.snapshot?.startedAt ? Date.now() - room.snapshot.startedAt + (mpTick * 0) : 0)
     : timer.elapsedMs;
 
   const toggleFullscreen = async () => {
